@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Radical Pair MFE | QubeLab</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root { color-scheme: light dark; --accent:#2e7dff; --muted:#777; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 1050px;
+      margin: 0 auto; padding: 24px; line-height: 1.5; }
+    h1 { line-height: 1.15; }
+    .lede { color: var(--muted); max-width: 75ch; }
+    .layout { display:grid; grid-template-columns: minmax(250px, 320px) 1fr; gap:24px; }
+    .panel { border:1px solid #8885; border-radius:16px; padding:18px; }
+    label { display:block; margin:16px 0 6px; font-weight:600; }
+    input, select, button { width:100%; box-sizing:border-box; font:inherit; }
+    input, select { padding:8px; }
+    button { margin-top:18px; padding:11px 14px; background:var(--accent);
+      border:0; border-radius:9px; color:white; font-weight:700; cursor:pointer; }
+    button:disabled { opacity:.6; cursor:wait; }
+    output { color:var(--muted); font-variant-numeric:tabular-nums; }
+    #status { min-height:1.5em; color:var(--muted); }
+    #plot { min-height:390px; }
+    .note { font-size:.92rem; color:var(--muted); }
+    code { overflow-wrap:anywhere; }
+    @media(max-width:760px) { .layout { grid-template-columns:1fr; } body {padding:16px;} }
+  </style>
+</head>
+<body>
+  <h1>Radical-pair magnetic-field effect</h1>
+  <p class="lede">An interactive teaching example using a remote Python API and RadicalPy.
+  Adjust the model parameters and request a new field sweep.</p>
+
+  <div class="layout">
+    <section class="panel" aria-label="Simulation parameters">
+      <label for="api">API URL</label>
+      <input id="api" type="url" value="https://YOUR-SERVICE.onrender.com"
+        autocomplete="url">
+      <p class="note">Replace this placeholder with your deployed backend URL.</p>
+
+      <label for="hf">Isotropic hyperfine coupling (mT)</label>
+      <input id="hf" type="range" min="0" max="5" step="0.1" value="1.5">
+      <output id="hfOut">1.5 mT</output>
+
+      <label for="rate">Exponential rate (s⁻¹)</label>
+      <select id="rate">
+        <option value="100000">1 × 10⁵</option>
+        <option value="1000000" selected>1 × 10⁶</option>
+        <option value="10000000">1 × 10⁷</option>
+      </select>
+
+      <label for="field">Maximum field (mT)</label>
+      <input id="field" type="range" min="1" max="15" step="1" value="15">
+      <output id="fieldOut">15 mT</output>
+
+      <label for="observable">Product observable</label>
+      <select id="observable">
+        <option value="singlet" selected>Singlet</option>
+        <option value="triplet">Triplet</option>
+      </select>
+
+      <button id="run">Run RadicalPy simulation</button>
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="panel">
+      <div id="plot" aria-label="Magnetic field effect plot"></div>
+      <p id="model" class="note">No simulation has been run yet.</p>
+    </section>
+  </div>
+
+  <h2>Model assumptions</h2>
+  <ul>
+    <li>Two electron spins, with one isotropically coupled ¹H nucleus.</li>
+    <li>Singlet initial state and exponential kinetic model.</li>
+    <li>Field sweep from zero to the selected maximum field.</li>
+    <li>This is a demonstration model, not a fit to experimental data.</li>
+  </ul>
+  <p class="note">For research use, validate the kinetic scheme, units, normalisation,
+  and simulation settings against the relevant physical model and RadicalPy version.</p>
+
+<script>
+  const hf = document.getElementById("hf");
+  const field = document.getElementById("field");
+  const hfOut = document.getElementById("hfOut");
+  const fieldOut = document.getElementById("fieldOut");
+  const runButton = document.getElementById("run");
+  const status = document.getElementById("status");
+
+  hf.addEventListener("input", () => hfOut.value = `${Number(hf.value).toFixed(1)} mT`);
+  field.addEventListener("input", () => fieldOut.value = `${field.value} mT`);
+
+  runButton.addEventListener("click", async () => {
+    const api = document.getElementById("api").value.trim().replace(/\/+$/, "");
+    if (!api || api.includes("YOUR-SERVICE")) {
+      status.textContent = "Enter your deployed API URL first.";
+      return;
+    }
+
+    runButton.disabled = true;
+    status.textContent = "Running simulation…";
+    try {
+      const response = await fetch(`${api}/simulate/mfe`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          field_max_mT: Number(field.value),
+          hyperfine_mT: Number(hf.value),
+          recombination_rate_s: Number(document.getElementById("rate").value),
+          field_points: 61,
+          duration_us: 2.0,
+          time_step_ns: 10.0,
+          observable: document.getElementById("observable").value
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+
+      Plotly.react("plot", [{
+        x: payload.field_mT,
+        y: payload.mfe_percent,
+        type: "scatter",
+        mode: "lines",
+        name: "MARY",
+        line: {width: 3}
+      }], {
+        title: "Magnetically affected reaction yield",
+        xaxis: {title: "Magnetic field B (mT)"},
+        yaxis: {title: "MARY response (%)"},
+        margin: {l:65, r:20, t:55, b:60},
+        paper_bgcolor: "rgba(0,0,0,0)",
+        plot_bgcolor: "rgba(0,0,0,0)",
+        font: {family: "system-ui, sans-serif"}
+      }, {responsive:true, displaylogo:false});
+
+      document.getElementById("model").textContent =
+        `${payload.model}. Calculation time: ${payload.elapsed_s ?? "?"} s.`;
+      status.textContent = "Simulation complete.";
+    } catch (error) {
+      status.textContent = `Could not run simulation: ${error.message}`;
+    } finally {
+      runButton.disabled = false;
+    }
+  });
+
+  Plotly.newPlot("plot", [], {
+    title: "Run a simulation to display the MFE curve",
+    xaxis: {title: "Magnetic field B (mT)"},
+    yaxis: {title: "MARY response (%)"},
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)"
+  }, {responsive:true, displaylogo:false});
+</script>
+</body>
+</html>
