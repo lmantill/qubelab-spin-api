@@ -28,7 +28,7 @@
   </style>
 </head>
 <body>
-  <h1>Radical-pair magnetic-field effect</h1>
+  <h1>Radical pair magnetic field effect</h1>
   <p class="lede">An interactive teaching example using a remote Python API and RadicalPy.
   Adjust the model parameters and request a new field sweep.</p>
 
@@ -48,16 +48,20 @@
         <option value="100000">1 × 10⁵</option>
         <option value="1000000" selected>1 × 10⁶</option>
         <option value="10000000">1 × 10⁷</option>
+        <option value="100000000">1 × 10⁸</option>
       </select>
 
       <label for="field">Maximum field (mT)</label>
-      <input id="field" type="range" min="1" max="15" step="1" value="15">
-      <output id="fieldOut">15 mT</output>
+      <input id="field" type="range" min="1" max="50" step="1" value="5">
+      <output id="fieldOut">5 mT</output>
 
       <label for="observable">Product observable</label>
       <select id="observable">
         <option value="singlet" selected>Singlet</option>
         <option value="triplet">Triplet</option>
+        <option value="triplet_plus">Triplet plus</option>
+        <option value="triplet_minus">Triplet minus</option>
+        <option value="triplet_zero">Triplet zero</option>
       </select>
 
       <button id="run">Run RadicalPy simulation</button>
@@ -108,7 +112,7 @@
           field_max_mT: Number(field.value),
           hyperfine_mT: Number(hf.value),
           recombination_rate_s: Number(document.getElementById("rate").value),
-          field_points: 61,
+          field_points: 30,
           duration_us: 2.0,
           time_step_ns: 10.0,
           observable: document.getElementById("observable").value

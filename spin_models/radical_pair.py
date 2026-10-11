@@ -10,6 +10,7 @@ Model:
 This is a teaching model, not a fit to a particular molecule or experiment.
 Check the installed RadicalPy version and validate results before research use.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,7 +21,7 @@ def simulate_one_proton_mary(
     field_max_mT: float = 15.0,
     hyperfine_mT: float = 1.5,
     recombination_rate_s: float = 1.0e6,
-    field_points: int = 61,
+    field_points: int = 31,
     duration_us: float = 2.0,
     time_step_ns: float = 10.0,
     observable: str = "singlet",

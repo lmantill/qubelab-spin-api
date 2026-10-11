@@ -39,10 +39,12 @@ class MARYRequest(BaseModel):
     field_max_mT: float = Field(default=15.0, ge=0.1, le=15.0)
     hyperfine_mT: float = Field(default=1.5, ge=0.0, le=5.0)
     recombination_rate_s: float = Field(default=1.0e6, ge=1.0e4, le=1.0e8)
-    field_points: int = Field(default=61, ge=11, le=151)
+    field_points: int = Field(default=31, ge=11, le=151)
     duration_us: float = Field(default=2.0, ge=0.1, le=5.0)
     time_step_ns: float = Field(default=10.0, ge=2.0, le=50.0)
-    observable: Literal["singlet", "triplet"] = "singlet"
+    observable: Literal[
+        "singlet", "triplet", "triplet_plus", "triplet_minus", "triplet_zero"
+    ] = "singlet"
 
 
 @app.get("/")
