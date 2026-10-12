@@ -1,105 +1,36 @@
-# QubeLab Spin Chemistry API — starter project
+# Separate RadicalPy time-evolution simulation
 
-This project provides a small FastAPI service and an example webpage for a remote
-RadicalPy magnetic-field-effect (MARY) tutorial.
+The existing MARY files and `/simulate/mfe` route are retained unchanged.
 
-## Important scientific note
+## New files and changes
 
-The endpoint uses RadicalPy's `mary(...)` routine with a singlet-born pair, one
-isotropically coupled `1H` nucleus on radical A, a second electron-only radical,
-zero exchange/dipolar couplings, and an exponential kinetic process. This is a
-teaching model, not a validated model for a specific molecule or experiment.
-Validate package-version compatibility, numerical convergence, observable
-normalisation, and kinetic assumptions before using results scientifically.
+- `spin_models/time_evolution.py`: a separate Hilbert-space time-evolution calculation.
+- `main.py`: adds `POST /simulate/time-evolution` while keeping the MARY endpoint.
+- `web-demo/time_evolution.html`: new standalone Plotly page. The original `web-demo/index.html` is unchanged.
 
-## Files
+## Deployment
 
-- `main.py`: API routes and request validation
-- `spin_models/radical_pair.py`: RadicalPy simulation function
-- `web-demo/index.html`: responsive page with sliders and Plotly graph
-- `render.yaml`: optional Render deployment blueprint
+1. Copy **`spin_models/time_evolution.py`** into the `spin_models/` directory of your Render API repository.
+2. Replace **`main.py`** with the provided version; redeploy Render.
+3. Upload **`web-demo/time_evolution.html`** as e.g. `tutorials/time_evolution.html` to GitHub Pages.
+4. Check that the page's API URL points to your Render service (`https://qubelab-spin-api.onrender.com`).
+5. If desired, add a Simulations dropdown link to `tutorials/time_evolution.html`.
 
-## Run locally
+## Parameters
 
-Use Python 3.11 in a virtual environment:
+Retains all physically relevant controls from MARY: initial state (S, T, T+, T−, T0), observable, one-proton hyperfine coupling, fixed B field (rather than MARY maximum sweep field), J, D, exponential rate, duration and time step. MARY-only `field_points` is not applicable to a fixed-field time trajectory.
 
-```bash
-python -m venv .venv
-# macOS/Linux
-source .venv/bin/activate
-# Windows PowerShell
-# .venv\Scripts\Activate.ps1
+## Physical meaning
 
-pip install -r requirements.txt
-uvicorn main:app --reload
-```
+- Uses RadicalPy `HilbertSimulation.total_hamiltonian(B0, J, D)`, `time_evolution(initial_state, time, H)`, and `product_probability(state, density_matrices)`.
+- The curves labelled *spin populations* show normalized, coherent spin-state populations, and **do not** depend on recombination rate.
+- The curves labelled *surviving* are multiplied by `exp(-k*t)`, the probability a radical pair has not recombined, reproducing the **uniform exponential model** in the MARY example. This is **not spin-selective Haberkorn kinetics**.
+- The total triplet population is the sum of T+, T0, T−. All four distinct populations sum to 1 in the unweighted calculation (subject to rounding).
+- The selected rate of 10^8 s^-1 uses an adaptive sampling target; output is capped at 5001 samples. Long durations can therefore be undersampled, especially with strong magnetic fields; verify time resolution for scientific use.
+- Model is educational and numerical/physical validation on your deployed RadicalPy environment is recommended.
 
-API docs: http://127.0.0.1:8000/docs
+## Test
 
-Health check: http://127.0.0.1:8000/health
+`python -m compileall main.py spin_models/`
 
-## Test the endpoint
-
-```bash
-curl -X POST http://127.0.0.1:8000/simulate/mfe \
-  -H "Content-Type: application/json" \
-  -d '{"field_max_mT":15,"hyperfine_mT":1.5,"recombination_rate_s":1000000,"field_points":31,"duration_us":1,"time_step_ns":10,"observable":"singlet"}'
-```
-
-## Deploy on Render
-
-1. Push this directory to a new GitHub repository.
-2. In Render, create a Web Service from the repository.
-3. Build command: `pip install -r requirements.txt`
-4. Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-5. Set `ALLOWED_ORIGINS` to your exact website origin, e.g.
-   `https://qubelab.github.io`.
-6. Deploy and test `/health` and `/docs`.
-
-The `render.yaml` file is optional; review its plan setting against current
-Render plans before using it.
-
-## Connect the webpage
-
-1. Open `web-demo/index.html`.
-2. Replace `https://YOUR-SERVICE.onrender.com` with your deployed service URL.
-3. Copy the file into your QubeLab website repository (for example,
-   `tutorials/radical-pair-mfe/index.html`).
-4. Make sure `ALLOWED_ORIGINS` includes `https://qubelab.github.io`.
-5. Commit and push to the GitHub Pages publishing branch.
-
-## Production hardening checklist
-
-- Pin a tested RadicalPy version once you have confirmed the API works in the
-  deployment environment.
-- Set CPU/memory limits and rate limits; cap sweep points and duration.
-- Add authentication or a quota if the API should not be publicly usable.
-- Use a background job queue for long-running calculations.
-- Add tests comparing backend output with a trusted local notebook.
-- Avoid accepting arbitrary Python code or arbitrary serialized objects from users.
-
-## Fixes for 10^8 s^-1 and triplet substate selection
-
-- `triplet_plus`, `triplet_minus` and `triplet_zero` now map to RadicalPy's
-  distinct `State.TRIPLET_PLUS`, `State.TRIPLET_MINUS` and `State.TRIPLET_ZERO`.
-- The integration grid automatically shortens and refines for rapid exponential
-  recombination (`dt <= 0.05/k`, duration <= 12/k), rather than sampling a 10 ns
-  lifetime at only one point per lifetime.
-- When the zero-field observed yield is exactly zero, a relative-percent MARY
-  value is undefined. The API instead reports the **absolute yield change in
-  percentage points** and marks the units explicitly; the UI labels it accordingly.
-- The backend accepts the frontend's 50 mT maximum.
-
-Deploy with `main.py` at repository root, `spin_models/radical_pair.py` in its
-subfolder, and `web-demo/index.html` at your website's simulation page.
-The included tests use an API stub and do **not** validate numerical outputs
-against a real RadicalPy installation. Verify convergence and normalization
-with the RadicalPy version deployed on Render.
-
-## New controls
-
-The simulation now accepts `initial_state` (`singlet`, `triplet`, `triplet_plus`, `triplet_minus`, or `triplet_zero`), `exchange_mT` (-5 to 5 mT), and `dipolar_mT` (-5 to 5 mT). Defaults retain the original singlet-born, J=0, D=0 model. `triplet` is RadicalPy's triplet manifold state, rather than an individual triplet sublevel. The scalar dipolar model and exchange sign/factor follow RadicalPy's conventions.
-
-Example JSON fields: `{"initial_state":"triplet_zero","exchange_mT":0.5,"dipolar_mT":-0.2}`.
-
-Deploy the backend changes before replacing the website HTML; otherwise the deployed API may silently ignore the new fields.
+Run `uvicorn main:app --reload` and use `POST /simulate/time-evolution` or browse `/docs`.

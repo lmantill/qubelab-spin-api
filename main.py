@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from spin_models.radical_pair import simulate_one_proton_mary
+from spin_models.time_evolution import simulate_time_evolution
 
 app = FastAPI(
     title="QubeLab Spin Chemistry API",
@@ -95,5 +96,31 @@ def simulate_mfe(request: MARYRequest):
             detail="The simulation failed. Check the server logs.",
         ) from exc
 
+    result["elapsed_s"] = round(time.perf_counter() - started, 3)
+    return result
+
+
+class TimeEvolutionRequest(BaseModel):
+    field_mT: float = Field(default=5.0, ge=0.0, le=50.0)
+    hyperfine_mT: float = Field(default=1.5, ge=0.0, le=5.0)
+    recombination_rate_s: float = Field(default=1e6, ge=1e4, le=1e8)
+    duration_us: float = Field(default=2.0, ge=0.1, le=5.0)
+    time_step_ns: float = Field(default=10.0, ge=2.0, le=50.0)
+    observable: Literal["singlet", "triplet", "triplet_plus", "triplet_minus", "triplet_zero"] = "singlet"
+    initial_state: Literal["singlet", "triplet", "triplet_plus", "triplet_minus", "triplet_zero"] = "singlet"
+    exchange_mT: float = Field(default=0.0, ge=-5.0, le=5.0)
+    dipolar_mT: float = Field(default=0.0, ge=-5.0, le=5.0)
+
+
+@app.post("/simulate/time-evolution")
+def simulate_time_evolution_endpoint(request: TimeEvolutionRequest):
+    started = time.perf_counter()
+    try:
+        result = simulate_time_evolution(**request.model_dump())
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail=f"Simulation dependency unavailable: {exc}") from exc
+    except Exception as exc:
+        print(f"Time evolution failed: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=500, detail="Time evolution simulation failed. Check server logs.") from exc
     result["elapsed_s"] = round(time.perf_counter() - started, 3)
     return result

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Radical Pair Time Evolution | QubeLab</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root { color-scheme: light dark; --accent:#2e7dff; --muted:#777; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 1050px;
+      margin: 0 auto; padding: 24px; line-height: 1.5; }
+    h1 { line-height: 1.15; }
+    .lede { color: var(--muted); max-width: 75ch; }
+    .layout { display:grid; grid-template-columns: minmax(250px, 320px) 1fr; gap:24px; }
+    .panel { border:1px solid #8885; border-radius:16px; padding:18px; }
+    label { display:block; margin:16px 0 6px; font-weight:600; }
+    input, select, button { width:100%; box-sizing:border-box; font:inherit; }
+    input, select { padding:8px; }
+    button { margin-top:18px; padding:11px 14px; background:var(--accent);
+      border:0; border-radius:9px; color:white; font-weight:700; cursor:pointer; }
+    button:disabled { opacity:.6; cursor:wait; }
+    output { color:var(--muted); font-variant-numeric:tabular-nums; }
+    #status { min-height:1.5em; color:var(--muted); }
+    #plot { min-height:390px; }
+    .note { font-size:.92rem; color:var(--muted); }
+    code { overflow-wrap:anywhere; }
+    @media(max-width:760px) { .layout { grid-template-columns:1fr; } body {padding:16px;} }
+  </style>
+</head>
+<body>
+  <h1>Radical pair time evolution</h1>
+  <p class="lede">An interactive teaching example using a remote Python API and RadicalPy.
+  Adjust the model parameters to plot spin-state populations versus time at a fixed magnetic field.</p>
+
+  <div class="layout">
+    <section class="panel" aria-label="Simulation parameters">
+      <label for="api">https://qubelab-spin-api.onrender.com/</label>
+      <input id="api" type="url" value="https://qubelab-spin-api.onrender.com"
+        autocomplete="url">
+      <p class="note">API service URL (change if using another deployment).</p>
+
+      <label for="hf">Isotropic hyperfine coupling (mT)</label>
+      <input id="hf" type="range" min="0" max="5" step="0.1" value="1.5">
+      <output id="hfOut">1.5 mT</output>
+
+      <label for="rate">Exponential rate (s⁻¹)</label>
+      <select id="rate">
+        <option value="100000">1 × 10⁵</option>
+        <option value="1000000" selected>1 × 10⁶</option>
+        <option value="10000000">1 × 10⁷</option>
+        <option value="100000000">1 × 10⁸</option>
+      </select>
+
+      <label for="field">Applied magnetic field B (mT)</label>
+      <input id="field" type="range" min="1" max="50" step="1" value="5">
+      <output id="fieldOut">5 mT</output>
+
+      <label for="initial_state">Initial radical-pair state</label>
+      <select id="initial_state">
+        <option value="singlet" selected>Singlet (S)</option>
+        <option value="triplet">Triplet (T, unpolarized mixture)</option>
+        <option value="triplet_plus">Triplet plus (T+)</option>
+        <option value="triplet_minus">Triplet minus (T−)</option>
+        <option value="triplet_zero">Triplet zero (T0)</option>
+      </select>
+
+      <label for="exchange">Exchange coupling J (mT)</label>
+      <input id="exchange" type="range" min="-5" max="5" step="0.1" value="0">
+      <output id="exchangeOut">0.0 mT</output>
+
+      <label for="dipolar">Dipolar coupling D (mT)</label>
+      <input id="dipolar" type="range" min="-5" max="5" step="0.1" value="0">
+      <output id="dipolarOut">0.0 mT</output>
+      <p class="note">J and D use RadicalPy's Hamiltonian conventions; these are scalar coupling parameters, not an orientation-averaged dipolar tensor.</p>
+
+      <label for="observable">Displayed spin-state observable</label>
+      <select id="observable">
+        <option value="singlet" selected>Singlet</option>
+        <option value="triplet">Triplet</option>
+        <option value="triplet_plus">T+</option>
+        <option value="triplet_minus">T−</option>
+        <option value="triplet_zero">T0</option>
+      </select>
+
+      <label for="duration">Simulation duration (µs)</label>
+      <input id="duration" type="range" min="0.1" max="5" step="0.1" value="2">
+      <output id="durationOut">2.0 µs</output>
+      <label for="step">Requested time step (ns)</label>
+      <select id="step">
+        <option value="2">2</option><option value="5">5</option>
+        <option value="10" selected>10</option><option value="20">20</option><option value="50">50</option>
+      </select>
+      <label for="mode">Plot mode</label>
+      <select id="mode">
+        <option value="populations" selected>Spin populations (without decay)</option>
+        <option value="surviving_populations">Surviving radical-pair populations (with decay)</option>
+      </select>
+      <label for="allStates"><input type="checkbox" id="allStates" checked style="width:auto"> Show all four spin substates</label>
+      <button id="run">Run time evolution</button>
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="panel">
+      <div id="plot" aria-label="Time evolution plot"></div>
+      <p id="model" class="note">No simulation has been run yet.</p>
+    </section>
+  </div>
+
+  <h2>Model assumptions</h2>
+  <ul>
+    <li>Two electron spins, with one isotropically coupled ¹H nucleus.</li>
+    <li>Selectable singlet or triplet initial state, with exponential kinetic model.</li>
+    <li>Scalar exchange coupling J and dipolar coupling D (both in mT), using RadicalPy conventions.</li>
+    <li>Fixed applied magnetic field, with time on the horizontal axis.</li>
+    <li>The <strong>rate</strong> applies uniform exponential survival exp(−kt). It does not alter coherent spin mixing or represent spin-selective recombination.</li>
+    <li>Singlet + T+ + T0 + T− = 1 for the unrecombined ensemble; total triplet is the sum of the three substates.</li>
+    <li>This is a demonstration model, not a fit to experimental data.</li>
+  </ul>
+  <p class="note">For research use, validate the kinetic scheme, units, normalisation,
+  and simulation settings against the relevant physical model and RadicalPy version.</p>
+
+<script>
+  const hf = document.getElementById("hf");
+  const field = document.getElementById("field");
+  const exchange = document.getElementById("exchange");
+  const dipolar = document.getElementById("dipolar");
+  const hfOut = document.getElementById("hfOut");
+  const fieldOut = document.getElementById("fieldOut");
+  const runButton = document.getElementById("run");
+  const status = document.getElementById("status");
+
+  hf.addEventListener("input", () => hfOut.value = `${Number(hf.value).toFixed(1)} mT`);
+  field.addEventListener("input", () => fieldOut.value = `${field.value} mT`);
+  exchange.addEventListener("input", () => document.getElementById("exchangeOut").value = `${Number(exchange.value).toFixed(1)} mT`);
+  dipolar.addEventListener("input", () => document.getElementById("dipolarOut").value = `${Number(dipolar.value).toFixed(1)} mT`);
+
+  document.getElementById("duration").addEventListener("input", e =>
+    document.getElementById("durationOut").value = `${Number(e.target.value).toFixed(1)} µs`);
+  runButton.addEventListener("click", async () => {
+    const api = document.getElementById("api").value.trim().replace(/\/+$/, "");
+    if (!api || api.includes("YOUR-SERVICE")) {
+      status.textContent = "Enter your deployed API URL first.";
+      return;
+    }
+    runButton.disabled = true;
+    status.textContent = "Calculating spin dynamics…";
+    try {
+      const response = await fetch(`${api}/simulate/time-evolution`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          field_mT: Number(field.value),
+          hyperfine_mT: Number(hf.value),
+          recombination_rate_s: Number(document.getElementById("rate").value),
+          duration_us: Number(document.getElementById("duration").value),
+          time_step_ns: Number(document.getElementById("step").value),
+          observable: document.getElementById("observable").value,
+          initial_state: document.getElementById("initial_state").value,
+          exchange_mT: Number(exchange.value), dipolar_mT: Number(dipolar.value)
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : `HTTP ${response.status}`);
+      const mode = document.getElementById("mode").value;
+      const chosen = document.getElementById("observable").value;
+      const names = {singlet:"S",triplet:"T (total)",triplet_plus:"T+",triplet_minus:"T−",triplet_zero:"T0"};
+      const visible = document.getElementById("allStates").checked
+        ? ["singlet","triplet_plus","triplet_zero","triplet_minus"]
+        : [chosen];
+      // Show total triplet as an additional curve if it is the selected observable.
+      if (chosen === "triplet" && !visible.includes(chosen)) visible.push(chosen);
+      const traces = visible.map(key => ({
+        x: payload.time_us, y: payload[mode][key], type:"scatter",
+        mode:"lines", name:names[key], line:{width: key === chosen ? 3.5 : 2}
+      }));
+      Plotly.react("plot", traces, {
+        title: mode === "populations" ? "Coherent spin-state populations" : "Surviving radical-pair spin populations",
+        xaxis:{title:"Time (µs)"},
+        yaxis:{title:mode === "populations" ? "Population (fraction)" : "Surviving population (fraction)", range:[0,1.02]},
+        margin:{l:65,r:20,t:55,b:60},
+        legend:{orientation:"h",y:-0.25},
+        paper_bgcolor:"rgba(0,0,0,0)",plot_bgcolor:"rgba(0,0,0,0)",
+        font:{family:"system-ui, sans-serif"}
+      }, {responsive:true,displaylogo:false});
+      document.getElementById("model").textContent =
+        `${payload.model}. Initial: ${names[payload.initial_state]}; B=${payload.parameters.field_mT} mT; J=${payload.parameters.exchange_mT} mT; D=${payload.parameters.dipolar_mT} mT. Calculation: ${payload.elapsed_s ?? "?"} s.`;
+      status.textContent = "Simulation complete.";
+    } catch (error) {
+      status.textContent = `Could not run simulation: ${error.message}`;
+    } finally {
+      runButton.disabled = false;
+    }
+  });
+  Plotly.newPlot("plot", [], {
+    title:"Run a simulation to display time evolution",
+    xaxis:{title:"Time (µs)"}, yaxis:{title:"Population", range:[0,1.02]},
+    paper_bgcolor:"rgba(0,0,0,0)",plot_bgcolor:"rgba(0,0,0,0)"
+  }, {responsive:true,displaylogo:false});
+</script>
+</body>
+</html>
