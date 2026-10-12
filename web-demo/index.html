@@ -37,7 +37,7 @@
       <label for="api">https://qubelab-spin-api.onrender.com/</label>
       <input id="api" type="url" value="https://qubelab-spin-api.onrender.com"
         autocomplete="url">
-      <p class="note">Replace this placeholder with your deployed backend URL.</p>
+      <p class="note">API service URL (change if using another deployment).</p>
 
       <label for="hf">Isotropic hyperfine coupling (mT)</label>
       <input id="hf" type="range" min="0" max="5" step="0.1" value="1.5">
@@ -55,13 +55,31 @@
       <input id="field" type="range" min="1" max="50" step="1" value="5">
       <output id="fieldOut">5 mT</output>
 
+      <label for="initial_state">Initial radical-pair state</label>
+      <select id="initial_state">
+        <option value="singlet" selected>Singlet (S)</option>
+        <option value="triplet">Triplet (T, unpolarized mixture)</option>
+        <option value="triplet_plus">Triplet plus (T+)</option>
+        <option value="triplet_minus">Triplet minus (T−)</option>
+        <option value="triplet_zero">Triplet zero (T0)</option>
+      </select>
+
+      <label for="exchange">Exchange coupling J (mT)</label>
+      <input id="exchange" type="range" min="-5" max="5" step="0.1" value="0">
+      <output id="exchangeOut">0.0 mT</output>
+
+      <label for="dipolar">Dipolar coupling D (mT)</label>
+      <input id="dipolar" type="range" min="-5" max="5" step="0.1" value="0">
+      <output id="dipolarOut">0.0 mT</output>
+      <p class="note">J and D use RadicalPy's Hamiltonian conventions; these are scalar coupling parameters, not an orientation-averaged dipolar tensor.</p>
+
       <label for="observable">Product observable</label>
       <select id="observable">
         <option value="singlet" selected>Singlet</option>
         <option value="triplet">Triplet</option>
-        <option value="triplet_plus">Triplet plus</option>
-        <option value="triplet_minus">Triplet minus</option>
-        <option value="triplet_zero">Triplet zero</option>
+        <option value="triplet_plus">T+</option>
+        <option value="triplet_minus">T−</option>
+        <option value="triplet_zero">T0</option>
       </select>
 
       <button id="run">Run RadicalPy simulation</button>
@@ -77,7 +95,8 @@
   <h2>Model assumptions</h2>
   <ul>
     <li>Two electron spins, with one isotropically coupled ¹H nucleus.</li>
-    <li>Singlet initial state and exponential kinetic model.</li>
+    <li>Selectable singlet or triplet initial state, with exponential kinetic model.</li>
+    <li>Scalar exchange coupling J and dipolar coupling D (both in mT), using RadicalPy conventions.</li>
     <li>Field sweep from zero to the selected maximum field.</li>
     <li>This is a demonstration model, not a fit to experimental data.</li>
   </ul>
@@ -87,6 +106,8 @@
 <script>
   const hf = document.getElementById("hf");
   const field = document.getElementById("field");
+  const exchange = document.getElementById("exchange");
+  const dipolar = document.getElementById("dipolar");
   const hfOut = document.getElementById("hfOut");
   const fieldOut = document.getElementById("fieldOut");
   const runButton = document.getElementById("run");
@@ -94,6 +115,8 @@
 
   hf.addEventListener("input", () => hfOut.value = `${Number(hf.value).toFixed(1)} mT`);
   field.addEventListener("input", () => fieldOut.value = `${field.value} mT`);
+  exchange.addEventListener("input", () => document.getElementById("exchangeOut").value = `${Number(exchange.value).toFixed(1)} mT`);
+  dipolar.addEventListener("input", () => document.getElementById("dipolarOut").value = `${Number(dipolar.value).toFixed(1)} mT`);
 
   runButton.addEventListener("click", async () => {
     const api = document.getElementById("api").value.trim().replace(/\/+$/, "");
@@ -115,7 +138,10 @@
           field_points: 31,
           duration_us: 2.0,
           time_step_ns: 10.0,
-          observable: document.getElementById("observable").value
+          observable: document.getElementById("observable").value,
+          initial_state: document.getElementById("initial_state").value,
+          exchange_mT: Number(exchange.value),
+          dipolar_mT: Number(dipolar.value)
         })
       });
       const payload = await response.json();
@@ -131,7 +157,7 @@
       }], {
         title: "Magnetically affected reaction yield",
         xaxis: {title: "Magnetic field B (mT)"},
-        yaxis: {title: "MARY response (%)"},
+        yaxis: {title: payload.units?.mfe_percent?.startsWith("percentage points") ? "Yield change (percentage points)" : "MARY response (%)"},
         margin: {l:65, r:20, t:55, b:60},
         paper_bgcolor: "rgba(0,0,0,0)",
         plot_bgcolor: "rgba(0,0,0,0)",
@@ -140,7 +166,9 @@
 
       document.getElementById("model").textContent =
         `${payload.model}. Calculation time: ${payload.elapsed_s ?? "?"} s.`;
-      status.textContent = "Simulation complete.";
+      status.textContent = payload.units?.mfe_percent?.startsWith("percentage points")
+        ? "Simulation complete. Zero-field yield is zero; plotted absolute yield change."
+        : "Simulation complete.";
     } catch (error) {
       status.textContent = `Could not run simulation: ${error.message}`;
     } finally {

@@ -77,3 +77,29 @@ Render plans before using it.
 - Use a background job queue for long-running calculations.
 - Add tests comparing backend output with a trusted local notebook.
 - Avoid accepting arbitrary Python code or arbitrary serialized objects from users.
+
+## Fixes for 10^8 s^-1 and triplet substate selection
+
+- `triplet_plus`, `triplet_minus` and `triplet_zero` now map to RadicalPy's
+  distinct `State.TRIPLET_PLUS`, `State.TRIPLET_MINUS` and `State.TRIPLET_ZERO`.
+- The integration grid automatically shortens and refines for rapid exponential
+  recombination (`dt <= 0.05/k`, duration <= 12/k), rather than sampling a 10 ns
+  lifetime at only one point per lifetime.
+- When the zero-field observed yield is exactly zero, a relative-percent MARY
+  value is undefined. The API instead reports the **absolute yield change in
+  percentage points** and marks the units explicitly; the UI labels it accordingly.
+- The backend accepts the frontend's 50 mT maximum.
+
+Deploy with `main.py` at repository root, `spin_models/radical_pair.py` in its
+subfolder, and `web-demo/index.html` at your website's simulation page.
+The included tests use an API stub and do **not** validate numerical outputs
+against a real RadicalPy installation. Verify convergence and normalization
+with the RadicalPy version deployed on Render.
+
+## New controls
+
+The simulation now accepts `initial_state` (`singlet`, `triplet`, `triplet_plus`, `triplet_minus`, or `triplet_zero`), `exchange_mT` (-5 to 5 mT), and `dipolar_mT` (-5 to 5 mT). Defaults retain the original singlet-born, J=0, D=0 model. `triplet` is RadicalPy's triplet manifold state, rather than an individual triplet sublevel. The scalar dipolar model and exchange sign/factor follow RadicalPy's conventions.
+
+Example JSON fields: `{"initial_state":"triplet_zero","exchange_mT":0.5,"dipolar_mT":-0.2}`.
+
+Deploy the backend changes before replacing the website HTML; otherwise the deployed API may silently ignore the new fields.

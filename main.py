@@ -36,7 +36,7 @@ app.add_middleware(
 
 
 class MARYRequest(BaseModel):
-    field_max_mT: float = Field(default=15.0, ge=0.1, le=15.0)
+    field_max_mT: float = Field(default=15.0, ge=0.1, le=50.0)
     hyperfine_mT: float = Field(default=1.5, ge=0.0, le=5.0)
     recombination_rate_s: float = Field(default=1.0e6, ge=1.0e4, le=1.0e8)
     field_points: int = Field(default=31, ge=11, le=151)
@@ -45,6 +45,11 @@ class MARYRequest(BaseModel):
     observable: Literal[
         "singlet", "triplet", "triplet_plus", "triplet_minus", "triplet_zero"
     ] = "singlet"
+    initial_state: Literal[
+        "singlet", "triplet", "triplet_plus", "triplet_minus", "triplet_zero"
+    ] = "singlet"
+    exchange_mT: float = Field(default=0.0, ge=-5.0, le=5.0)
+    dipolar_mT: float = Field(default=0.0, ge=-5.0, le=5.0)
 
 
 @app.get("/")
@@ -73,6 +78,9 @@ def simulate_mfe(request: MARYRequest):
             duration_us=request.duration_us,
             time_step_ns=request.time_step_ns,
             observable=request.observable,
+            initial_state=request.initial_state,
+            exchange_mT=request.exchange_mT,
+            dipolar_mT=request.dipolar_mT,
         )
     except ImportError as exc:
         raise HTTPException(
