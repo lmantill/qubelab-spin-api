@@ -1,51 +1,84 @@
-"""RadicalPy 3D orientation dependence from an axial dipolar tensor.
+"""Fast 3D angular product yield using RadicalPy Hamiltonians and state projectors.
 
-The original isotropic one-proton model is angularly isotropic at D=0.
-A fixed molecular-frame axial dipolar tensor is introduced using the D control;
-this is an explicit modelling choice rather than an anisotropic hyperfine tensor.
+The exponential survival integral is evaluated analytically in the Hamiltonian
+ eigenbasis, avoiding hundreds of slow time-step propagations on Render.
 """
-import numpy as np
-from .common import setup,times
+from __future__ import annotations
 
-def simulate_anisotropy(*,field_mT=5.,hyperfine_mT=1.5,recombination_rate_s=1e6,duration_us=2.,time_step_ns=10.,initial_state='singlet',observable='singlet',exchange_mT=0.,dipolar_mT=0.,theta_points=13,phi_points=25):
-    from radicalpy.experiments import anisotropy_loop
-    from radicalpy.kinetics import Exponential
-    from radicalpy.simulation import HilbertSimulation
-    # anisotropy() uses LiouvilleSimulation and orientational field rotation.
-    import radicalpy as rp
-    a=rp.simulation.Molecule.fromisotopes(isotopes=['1H'],hfcs=[float(hyperfine_mT)],name='Radical A')
-    b=rp.simulation.Molecule('Radical B',[])
-    sim=HilbertSimulation([a,b])
-    _, states=setup(hyperfine_mT)
-    theta=np.linspace(0,np.pi,int(theta_points))
-    phi=np.linspace(0,2*np.pi,int(phi_points))
-    D=float(dipolar_mT)
-    tensor=np.diag([-D/2,-D/2,D])
-    t=times(duration_us,time_step_ns,recombination_rate_s)
-    if len(t) > 401:
-        t = np.linspace(t[0], t[-1], 401)
-    Hbase=sim.total_hamiltonian(B0=0.0,D=tensor,J=float(exchange_mT),hfc_anisotropy=False)
-    # With an isotropic hyperfine interaction and no axial coupling, the
-    # Hamiltonian is rotationally invariant. Avoid redundant angle sweeps.
-    if abs(D) < 1e-15:
-        H = sim.total_hamiltonian(B0=float(field_mT), D=0.0,
-                                  J=float(exchange_mT), hfc_anisotropy=False)
-        rho = sim.time_evolution(states[initial_state], t, H)
-        curve = np.real(sim.product_probability(states[observable], rho))
-        probabilities = np.broadcast_to(curve, (len(theta), len(phi), len(t)))
-    else:
-        probabilities=anisotropy_loop(sim,states[initial_state],states[observable],t,float(field_mT),Hbase,theta,phi)
-    rate=float(recombination_rate_s)
-    weighted=np.real(probabilities)*np.exp(-rate*t)[None,None,:]
-    trapezoid=getattr(np,'trapezoid',np.trapz)
-    yields=rate*trapezoid(weighted,x=t,axis=-1)
-    expected=(len(theta),len(phi))
-    if yields.shape != expected:
-        raise ValueError(f'Unexpected RadicalPy anisotropy shape: {yields.shape} vs {expected}')
-    if not np.all(np.isfinite(yields)):
-        raise ValueError('Nonfinite anisotropy yield')
-    # radius is nonnegative; color expresses actual product yield, including zeros.
-    th,ph=np.meshgrid(theta,phi,indexing='ij')
-    baseline=float(np.max(np.abs(yields)))
-    r=0.4+0.6*np.abs(yields)/baseline if baseline>1e-15 else np.ones_like(yields)
-    return {'theta_rad':theta.tolist(),'phi_rad':phi.tolist(),'x':(r*np.sin(th)*np.cos(ph)).tolist(),'y':(r*np.sin(th)*np.sin(ph)).tolist(),'z':(r*np.cos(th)).tolist(),'yield':yields.tolist(),'parameters':{'field_mT':field_mT,'hyperfine_mT':hyperfine_mT,'recombination_rate_s':recombination_rate_s,'duration_us':duration_us,'time_step_ns':time_step_ns,'initial_state':initial_state,'observable':observable,'exchange_mT':exchange_mT,'dipolar_mT':dipolar_mT},'note':'3D angular product-yield surface. Axial molecular-frame dipolar tensor diag(-D/2,-D/2,D) mT; isotropic hyperfine coupling. If D=0 the model is orientation independent. Surface radius is scaled for display; color represents yield.'}
+import numpy as np
+from .common import setup
+
+
+def _yield_from_hamiltonian(H, rho0, Q, rate, duration):
+    """k ∫_0^T exp(-kt) Tr[Q exp(-iHt) rho0 exp(iHt)] dt.
+
+    H must be in angular-frequency (rad/s) units, as returned by RadicalPy.
+    """
+    energies, vectors = np.linalg.eigh(np.asarray(H, dtype=complex))
+    rho = vectors.conj().T @ rho0 @ vectors
+    obs = vectors.conj().T @ Q @ vectors
+    delta = energies[:, None] - energies[None, :]
+    z = rate + 1j * delta
+    factor = -rate * np.expm1(-z * duration) / z
+    value = np.sum(rho * obs.T * factor)
+    return float(np.real(value))
+
+
+def simulate_anisotropy(*, field_mT=5.0, hyperfine_mT=1.5,
+                        recombination_rate_s=1e6, duration_us=2.0,
+                        time_step_ns=10.0, initial_state='singlet',
+                        observable='singlet', exchange_mT=0.0, dipolar_mT=0.0,
+                        theta_points=13, phi_points=25):
+    sim, states = setup(hyperfine_mT)
+    theta = np.linspace(0, np.pi, int(theta_points))
+    phi = np.linspace(0, 2*np.pi, int(phi_points))
+    rate = float(recombination_rate_s)
+    duration = float(duration_us) * 1e-6
+    if rate <= 0 or duration <= 0:
+        raise ValueError('Rate and duration must be positive')
+    D = float(dipolar_mT)
+    tensor = np.diag([-D/2, -D/2, D])
+    Hbase = sim.total_hamiltonian(B0=0.0, J=float(exchange_mT),
+                                   D=tensor, hfc_anisotropy=False)
+    # Match RadicalPy's initialization/projection conventions, including
+    # normalisation of the unpolarized triplet initial state.
+    rho0 = np.asarray(sim.initial_density_matrix(states[initial_state], Hbase), dtype=complex)
+    Q = np.asarray(sim.observable_projection_operator(states[observable]), dtype=complex)
+    result = np.empty((len(theta), len(phi)), dtype=float)
+    # The axial tensor is independent of azimuth. Singlet and unpolarized
+    # triplet states are rotationally invariant, so phi is redundant for those.
+    phi_invariant = initial_state in ('singlet', 'triplet') and observable in ('singlet', 'triplet')
+    for i, th in enumerate(theta):
+        for j, ph in enumerate(phi):
+            if phi_invariant and j:
+                result[i, j] = result[i, 0]
+                continue
+            H = Hbase + sim.convert(sim.zeeman_hamiltonian(float(field_mT), theta=float(th), phi=float(ph)))
+            result[i, j] = _yield_from_hamiltonian(H, rho0, Q, rate, duration)
+    if not np.isfinite(result).all():
+        raise ValueError('The calculation generated non-finite yields')
+    result = np.clip(result, 0., 1.)
+    th, ph = np.meshgrid(theta, phi, indexing='ij')
+    # Plot radius in [0.4,1] while retaining the actual yield in the color.
+    top = float(np.max(result))
+    radius = 0.4 + 0.6*result/top if top > 1e-15 else np.ones_like(result)
+    return {
+        'theta_rad': theta.tolist(), 'phi_rad': phi.tolist(),
+        'x': (radius*np.sin(th)*np.cos(ph)).tolist(),
+        'y': (radius*np.sin(th)*np.sin(ph)).tolist(),
+        'z': (radius*np.cos(th)).tolist(),
+        'yield': result.tolist(),
+        'parameters': {
+            'field_mT':field_mT,'hyperfine_mT':hyperfine_mT,
+            'recombination_rate_s':recombination_rate_s,
+            'duration_us':duration_us,'time_step_ns':time_step_ns,
+            'initial_state':initial_state,'observable':observable,
+            'exchange_mT':exchange_mT,'dipolar_mT':dipolar_mT,
+        },
+        'note': ('3D product-yield angular surface using RadicalPy Hamiltonians. '
+                 'The dipolar coupling is modeled as an axial tensor '
+                 'diag(-D/2,-D/2,D) in mT. Color is integrated yield; '
+                 'radius is scaled for display. Exponential survival is '
+                 'integrated exactly for the specified duration; requested '
+                 'time step is retained for consistency but is not needed here.'),
+    }
