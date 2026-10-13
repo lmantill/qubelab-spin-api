@@ -22,8 +22,19 @@ def simulate_anisotropy(*,field_mT=5.,hyperfine_mT=1.5,recombination_rate_s=1e6,
     D=float(dipolar_mT)
     tensor=np.diag([-D/2,-D/2,D])
     t=times(duration_us,time_step_ns,recombination_rate_s)
+    if len(t) > 401:
+        t = np.linspace(t[0], t[-1], 401)
     Hbase=sim.total_hamiltonian(B0=0.0,D=tensor,J=float(exchange_mT),hfc_anisotropy=False)
-    probabilities=anisotropy_loop(sim,states[initial_state],states[observable],t,float(field_mT),Hbase,theta,phi)
+    # With an isotropic hyperfine interaction and no axial coupling, the
+    # Hamiltonian is rotationally invariant. Avoid redundant angle sweeps.
+    if abs(D) < 1e-15:
+        H = sim.total_hamiltonian(B0=float(field_mT), D=0.0,
+                                  J=float(exchange_mT), hfc_anisotropy=False)
+        rho = sim.time_evolution(states[initial_state], t, H)
+        curve = np.real(sim.product_probability(states[observable], rho))
+        probabilities = np.broadcast_to(curve, (len(theta), len(phi), len(t)))
+    else:
+        probabilities=anisotropy_loop(sim,states[initial_state],states[observable],t,float(field_mT),Hbase,theta,phi)
     rate=float(recombination_rate_s)
     weighted=np.real(probabilities)*np.exp(-rate*t)[None,None,:]
     trapezoid=getattr(np,'trapezoid',np.trapz)

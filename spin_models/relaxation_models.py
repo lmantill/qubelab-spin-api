@@ -17,11 +17,10 @@ def simulate_relaxation_models(*,field_mT=5.,hyperfine_mT=1.5,recombination_rate
         b=rp.simulation.Molecule('Radical B',[])
         sim=LiouvilleSimulation([a,b])
         H=sim.total_hamiltonian(B0=float(field_mT),J=float(exchange_mT),D=float(dipolar_mT))
-        H=sim.convert(H)
         if available[key] is not None:
             sim.apply_liouville_hamiltonian_modifiers(H,[available[key](rate_constant=float(relaxation_rate_s))])
         rho=sim.time_evolution(state[initial_state],t,H)
-        population=np.asarray(sim.product_probability(state[observable],rho),dtype=float).reshape(-1)
+        population=np.real(np.asarray(sim.product_probability(state[observable],rho))).reshape(-1)
         if len(population)!=len(t) or not np.all(np.isfinite(population)): raise ValueError(f'Invalid series for {key}')
         series[key]=population.tolist()
     return {'time_us':(t*1e6).tolist(),'populations':series,'surviving_populations':{k:(np.asarray(v)*np.exp(-float(recombination_rate_s)*t)).tolist() for k,v in series.items()},'parameters':{'field_mT':field_mT,'hyperfine_mT':hyperfine_mT,'recombination_rate_s':recombination_rate_s,'relaxation_rate_s':relaxation_rate_s,'duration_us':duration_us,'time_step_ns':time_step_ns,'initial_state':initial_state,'observable':observable,'exchange_mT':exchange_mT,'dipolar_mT':dipolar_mT},'note':'Actual RadicalPy Liouville relaxation superoperators; recombination is separately shown as uniform exp(-kt) survival, not a spin-selective process.'}
