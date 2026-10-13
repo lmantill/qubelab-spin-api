@@ -124,3 +124,45 @@ def simulate_time_evolution_endpoint(request: TimeEvolutionRequest):
         raise HTTPException(status_code=500, detail="Time evolution simulation failed. Check server logs.") from exc
     result["elapsed_s"] = round(time.perf_counter() - started, 3)
     return result
+
+
+# Additional independent teaching simulations.
+from spin_models.energy_levels import simulate_energy_levels
+from spin_models.anisotropy import simulate_anisotropy
+from spin_models.relaxation_models import simulate_relaxation_models
+
+class EnergyRequest(TimeEvolutionRequest):
+    field_max_mT: float = Field(default=15.0, ge=0.1, le=50.0)
+    field_points: int = Field(default=61, ge=11, le=101)
+
+class AnisotropyRequest(TimeEvolutionRequest):
+    theta_points: int = Field(default=13, ge=5, le=25)
+    phi_points: int = Field(default=25, ge=9, le=49)
+
+class RelaxationRequest(TimeEvolutionRequest):
+    relaxation_rate_s: float = Field(default=1e6, ge=1e3, le=1e8)
+    models: list[Literal['none','singlet_triplet_dephasing','random_fields','t1','t2','triplet_triplet_dephasing']] = Field(default_factory=lambda:['none','singlet_triplet_dephasing','random_fields','t1','t2'],min_length=1,max_length=6)
+
+def guarded(fn, values, label):
+    start=time.perf_counter()
+    try:
+        result=fn(**values)
+    except ImportError as e:
+        raise HTTPException(status_code=503,detail=f'Simulation dependency unavailable: {e}') from e
+    except Exception as e:
+        print(f'{label} failed: {type(e).__name__}: {e}')
+        raise HTTPException(status_code=500,detail=f'{label} failed. Check server logs.') from e
+    result['elapsed_s']=round(time.perf_counter()-start,3)
+    return result
+
+@app.post('/simulate/energy-levels')
+def energy_levels_endpoint(request:EnergyRequest):
+    return guarded(simulate_energy_levels,request.model_dump(),'Energy levels')
+
+@app.post('/simulate/anisotropy')
+def anisotropy_endpoint(request:AnisotropyRequest):
+    return guarded(simulate_anisotropy,request.model_dump(),'Anisotropy')
+
+@app.post('/simulate/relaxation')
+def relaxation_endpoint(request:RelaxationRequest):
+    return guarded(simulate_relaxation_models,request.model_dump(),'Relaxation')
